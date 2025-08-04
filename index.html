@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>🚀 Secure Discord Sender</title>
+  <link rel="manifest" href="manifest.json" />
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <script src="https://unpkg.com/fflate@0.7.4/umd/index.js"></script>
+  <style>
+    body { margin: 0; padding: 0; font-family: Arial, sans-serif; transition: background 0.3s, color 0.3s; }
+    body.dark-mode { background-color: #121212; color: white; }
+    body.light-mode { background-color: #f5f5f5; color: #222; }
+    .container { padding: 20px; max-width: 600px; margin: auto; }
+    .card { border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+    .dark-mode .card { background: #1e1e1e; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+    .light-mode .card { background: #fff; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    input, textarea, button { width: 100%; margin-top: 10px; padding: 12px; border: none; border-radius: 8px; box-sizing: border-box; font-size: 16px; }
+    .dark-mode input, .dark-mode textarea { background: #2c2c2c; color: white; }
+    .light-mode input, .light-mode textarea { background: #eee; color: #111; }
+    button { background: #4caf50; color: white; font-weight: bold; cursor: pointer; }
+    button:hover { background: #45a049; }
+    #progressContainer { display: none; height: 24px; background: #333; border-radius: 8px; margin-top: 10px; overflow: hidden; }
+    #progressBar { height: 100%; width: 0%; background: #4caf50; color: white; text-align: center; line-height: 24px; font-weight: bold; }
+    #loginScreen { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; z-index: 9999; }
+    .dark-mode #loginScreen { background: #121212; }
+    .light-mode #loginScreen { background: #fff; }
+    #loginBox { background: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 0 20px rgba(0,0,0,0.8); text-align: center; max-width: 300px; width: 90%; color: white; }
+    #cameraModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; display: none; z‑index: 9998; flex-direction: column; align-items: center; justify-content: center; }
+    video { width: 100%; max-height: 90vh; object-fit: contain; }
+    #statusMsg { text-align: center; margin-top: 10px; color: #4caf50; }
+    .popup { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 20px; border-radius: 12px; box-shadow: 0 0 10px black; opacity: 0; transition: opacity 0.4s; z‑index: 9999; }
+    .dark-mode .popup { background: #1e1e1e; color: #4caf50; }
+    .light-mode .popup { background: #fff; color: #4caf50; }
+    .popup.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div id="loginScreen">
+    <div id="loginBox">
+      <h2>🔐 Enter PIN</h2>
+      <input type="password" id="pinInput" placeholder="PIN">
+      <button onclick="checkPIN()">Unlock</button>
+      <p id="loginStatus"></p>
+    </div>
+  </div>
+
+  <div style="text-align: center; padding: 10px;">
+    <span id="connectionStatus">🔄 Checking webhook status...</span>
+    <button style="margin-left: 10px;" onclick="checkBotStatus()">🔁 Refresh</button>
+  </div>
+
+  <div class="container">
+    <div style="text-align: right; margin-bottom: 10px;">
+      <button id="themeToggle" onclick="toggleTheme()">🌙 Dark Mode</button>
+    </div>
+
+    <div class="card">
+      <h2>💬 Send Text Message</h2>
+      <textarea id="textMessage" rows="3" placeholder="Type your message..."></textarea>
+      <button onclick="sendText()">Send Text</button>
+    </div>
+
+    <div class="card" ondrop="handleDrop(event)" ondragover="event.preventDefault()">
+      <h2>📁 Send Files</h2>
+      <input type="file" id="fileInput" multiple>
+      <label><input type="checkbox" id="compressCheckbox" checked> 📦 Compress before sending (.zip)</label>
+      <button id="fileSendBtn" onclick="sendFile()">Send Files</button>
+      <div id="progressContainer"><div id="progressBar">0%</div></div>
+    </div>
+
+    <div class="card">
+      <h2>📸 Capture & Send Photo</h2>
+      <button onclick="openCamera()">Open Camera</button>
+    </div>
+
+    <p id="statusMsg"></p>
+  </div>
+
+  <div id="cameraModal">
+    <video id="video" autoplay playsinline muted></video>
+    <button onclick="toggleCameraFacing()">🔄 Flip Camera</button>
+    <button style="margin: 15px; padding: 10px 20px;" onclick="captureAndSend()">📤 Capture & Send</button>
+    <button onclick="closeCamera()">❌ Close</button>
+  </div>
+
+  <div id="popup" class="popup">✅ Sent successfully!</div>
+
+  <script>
+    const DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/1401944514918088724/7RfV0_9idk9kWWlbKlIvYwwTXp_heG0S-rYPbs85NeO1McKaF6TWQrgkUD77QfM-aTlg'; // ← replace with your actual URL
+    const CORRECT_PIN = 'dady8307';
+
+    function checkPIN() {
+      const pin = document.getElementById('pinInput').value;
+      if (pin === CORRECT_PIN) {
+        document.getElementById('loginScreen').style.display = 'none';
+        showPopup("🔓 Access granted.");
+      } else {
+        document.getElementById('loginStatus').innerText = '❌ Incorrect PIN';
+      }
+    }
+
+    function showPopup(message) {
+      const popup = document.getElementById("popup");
+      popup.textContent = message;
+      popup.classList.add("show");
+      setTimeout(() => popup.classList.remove("show"), 3000);
+      confetti();
+    }
+
+    function sendText() {
+      const msg = document.getElementById('textMessage').value;
+      if (!msg) return alert("Please enter a message.");
+      fetch(DISCORD_WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: msg })
+      }).then(res => {
+        if (res.ok) showPopup("✅ Message sent!");
+        else alert("❌ Failed to send message.");
+      }).catch(() => alert("❌ Network error."));
+    }
+
+    function handleDrop(event) {
+      event.preventDefault();
+      document.getElementById('fileInput').files = event.dataTransfer.files;
+    }
+
+    function sendFile() {
+      const files = document.getElementById('fileInput').files;
+      const compress = document.getElementById('compressCheckbox').checked;
+      const progressBar = document.getElementById('progressBar');
+      const progressContainer = document.getElementById('progressContainer');
+      const sendBtn = document.getElementById('fileSendBtn');
+      if (files.length === 0) return alert("Please select file(s).");
+
+      sendBtn.disabled = true;
+      progressContainer.style.display = 'block';
+      progressBar.style.width = '0%';
+      progressBar.textContent = '0%';
+
+      function resetProgress() {
+        sendBtn.disabled = false;
+        setTimeout(() => {
+          progressContainer.style.display = 'none';
+          progressBar.style.width = '0%';
+          progressBar.textContent = '';
+        }, 2000);
+      }
+
+      const sendBlob = (blob, name) => {
+        const formData = new FormData();
+        formData.append('file', blob, name);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', DISCORD_WEBHOOK);
+
+        xhr.upload.onprogress = e => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            progressBar.style.width = pct + '%';
+            progressBar.textContent = pct + '%';
+          }
+        };
+
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) showPopup("✅ File sent!");
+          else alert("❌ Failed to send file.");
+          resetProgress();
+        };
+        xhr.onerror = () => { alert("❌ Network error."); resetProgress(); };
+        xhr.send(formData);
+      };
+
+      if (compress) {
+        const zipObj = {};
+        let remaining = files.length;
+        for (const f of files) {
+          const reader = new FileReader();
+          reader.onload = e => {
+            zipObj[f.name] = new Uint8Array(e.target.result);
+            if (--remaining === 0) {
+              const zipped = fflate.zipSync(zipObj);
+              sendBlob(new Blob([zipped], { type: 'application/zip' }), 'files.zip');
+            }
+          };
+          reader.readAsArrayBuffer(f);
+        }
+      } else {
+        let i = 0;
+        function next() {
+          if (i >= files.length) return resetProgress();
+          sendBlob(files[i], files[i].name);
+          i++;
+          setTimeout(next, 1500);
+        }
+        next();
+      }
+    }
+
+    const video = document.getElementById('video');
+    let currentFacing = 'user';
+
+    function openCamera() {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: currentFacing } }, audio: false })
+        .then(stream => {
+          video.srcObject = stream;
+          document.getElementById('cameraModal').style.display = 'flex';
+        }).catch(err => alert("❌ Cannot access camera: " + err.message));
+    }
+
+    function toggleCameraFacing() {
+      currentFacing = currentFacing === 'user' ? 'environment' : 'user';
+      closeCamera();
+      setTimeout(openCamera, 500);
+    }
+
+    function closeCamera() {
+      document.getElementById('cameraModal').style.display = 'none';
+      if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+    }
+
+    function captureAndSend() {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      canvas.toBlob(blob => {
+        const fd = new FormData();
+        fd.append('file', blob, 'photo.jpg');
+        fetch(DISCORD_WEBHOOK, { method: 'POST', body: fd })
+          .then(res => res.ok ? showPopup("📸 Photo sent!") : alert("❌ Failed to send photo."))
+          .catch(() => alert("❌ Network error."));
+      }, 'image/jpeg');
+    }
+
+    function toggleTheme() {
+      const body = document.body;
+      const isDark = body.classList.contains('dark-mode');
+      const next = isDark ? 'light' : 'dark';
+      body.classList.toggle('dark-mode', next === 'dark');
+      body.classList.toggle('light-mode', next === 'light');
+      localStorage.setItem('theme', next);
+      document.getElementById('themeToggle').textContent = next === 'dark' ? '🌙 Dark Mode' : '☀️ Light Mode';
+    }
+
+    function applySavedTheme() {
+      const saved = localStorage.getItem('theme') || 'dark';
+      document.body.classList.add(saved + '-mode');
+      document.getElementById('themeToggle').textContent = saved === 'dark' ? '🌙 Dark Mode' : '☀️ Light Mode';
+    }
+
+    function checkBotStatus() {
+      const statusEl = document.getElementById('connectionStatus');
+      fetch(DISCORD_WEBHOOK, { method: 'GET' })
+        .then(res => {
+          if (res.ok) {
+            statusEl.textContent = '🟢 Webhook is Online';
+            statusEl.style.color = '#4caf50';
+          } else {
+            statusEl.textContent = `🔴 Webhook is Offline (Status: ${res.status})`;
+            statusEl.style.color = 'red';
+          }
+        })
+        .catch(() => {
+          statusEl.textContent = '🔴 Webhook is Offline (Network error)';
+          statusEl.style.color = 'red';
+        });
+    }
+
+    window.addEventListener('load', () => {
+      applySavedTheme();
+      checkBotStatus();
+      setInterval(checkBotStatus, 10000);
+    });
+  </script>
+</body>
+</html>
